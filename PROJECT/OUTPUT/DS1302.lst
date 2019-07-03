@@ -1,0 +1,175 @@
+C51 COMPILER V9.59.0.0   DS1302                                                            07/03/2019 09:05:34 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DS1302
+OBJECT MODULE PLACED IN .\Objects\DS1302.obj
+COMPILER INVOKED BY: E:\MDK5\C51\BIN\C51.EXE FLIB\DS1302.c OPTIMIZE(8,SPEED) BROWSE INCDIR(.\INC) DEBUG OBJECTEXTEND PRI
+                    -NT(.\OUTPUT\DS1302.lst) TABS(2) OBJECT(.\Objects\DS1302.obj)
+
+line level    source
+
+   1          #include "DS1302.h"
+   2          #include "reg52.h"
+   3          
+   4          
+   5          /*****************************************************************
+   6          时钟日历暂存数组。秒、分、时、日、月、周、年
+   7          初值为--19年7月2日周2  12：00：00
+   8          ******************************************************************/
+   9          u8 TimeDat[7] = {0, 0, 12, 2, 7, 2, 19};
+  10          
+  11          
+  12          
+  13          //延时函数
+  14          void Delay_Ms(u16 ms)
+  15          {
+  16   1        u16 i;
+  17   1          do
+  18   1          {
+  19   2            i = Fosc / 96000;
+  20   2            while(--i);           //96T per loop
+  21   2          }while(--ms);
+  22   1          
+  23   1      }
+  24          
+  25          
+  26          //写一字节数据
+  27          void DS1302_W_Byte(u8 dat)
+  28          {
+  29   1        u8 i;
+  30   1          for(i = 0; i < 8; i++)    //每次写1 bit,写8次
+  31   1          {
+  32   2            TSCLK = 0;            //拉低时钟总线
+  33   2            TIO = dat & 0x01;     //从最低未开始写
+  34   2            TSCLK = 1;            //拉高时钟总线，DS1302把数据读走
+  35   2            dat >>= 1;            //数据右移一位
+  36   2          }
+  37   1          
+  38   1      }
+  39          
+  40          
+  41          //读一字节数据
+  42          u8 DS1302_R_Byte()
+  43          {
+  44   1        u8 i, dat;
+  45   1          for(i = 0; i < 8; i++)      //每次写1 bit ，写8次
+  46   1          {
+  47   2            TSCLK = 0;
+  48   2            dat >>= 1;                //数据右移一位，从最低位开始读
+  49   2              if(TIO)
+  50   2                dat |= 0x80;          //读取数据
+  51   2            TSCLK = 1;
+  52   2          }
+  53   1        return dat;
+  54   1          
+C51 COMPILER V9.59.0.0   DS1302                                                            07/03/2019 09:05:34 PAGE 2   
+
+  55   1      }
+  56          
+  57          
+  58          //先写命令再写数据
+  59          void DS1302_W_DAT(u8 cmd, u8 dat)
+  60          {
+  61   1        TRST = 0;       //拉低使能端
+  62   1        TSCLK = 0;      
+  63   1        TRST = 1;
+  64   1        DS1302_W_Byte(cmd);     //写命令
+  65   1        DS1302_W_Byte(dat);     //写数据
+  66   1        
+  67   1      }
+  68          
+  69          
+  70          //先写命令再读数据
+  71          u8 DS1302_R_DAT(u8 cmd)
+  72          {
+  73   1        u8 dat;
+  74   1        TRST = 0;
+  75   1        TSCLK = 0;
+  76   1        TRST = 1;
+  77   1        DS1302_W_Byte(cmd);     //写命令
+  78   1        dat = DS1302_R_Byte();  //读数据
+  79   1        
+  80   1        return dat;
+  81   1        
+  82   1      }
+  83          
+  84          
+  85          //清除写保护
+  86          void DS1302_Clear_WP()
+  87          {
+  88   1        DS1302_W_DAT(0x8e, 0x00);   //把控制寄存器WP位置清零
+  89   1        
+  90   1      }
+  91          
+  92          
+  93          //设置写保护
+  94          void DS1302_Set_WP()
+  95          {
+  96   1        DS1302_W_DAT(0x8e, 0x80);   //把控制寄存器WP位置置1
+  97   1        TRST = 0;
+  98   1        TSCLK = 0;
+  99   1        
+ 100   1      }
+ 101          
+ 102          
+ 103          /*****************************************************************
+ 104          设置DS1302时钟日历数据
+ 105          说明： 把时钟日历暂存数组TimeData数据转换为BCD码
+ 106                并写入到DS1302时钟日历寄存器中
+ 107          *****************************************************************/
+ 108          void Set_DS1302_Time(u8 addr)
+ 109          {
+ 110   1        u8 a, b;
+ 111   1        DS1302_Clear_WP();      //清除写保护
+ 112   1        
+ 113   1        for(a = 0; a < 7; a++)    //写入七个字节的时钟初始值
+ 114   1        {
+ 115   2          b = TimeDat[a] / 10;
+ 116   2          TimeDat[a] %= 10;
+C51 COMPILER V9.59.0.0   DS1302                                                            07/03/2019 09:05:34 PAGE 3   
+
+ 117   2          TimeDat[a] += b*16;   //BCD码转换
+ 118   2          
+ 119   2          DS1302_W_DAT(addr, TimeDat[a]);   //先写时钟日历起始地址，再写数据
+ 120   2          addr += 2;        //转向下一个寄存器
+ 121   2          
+ 122   2        }
+ 123   1        DS1302_Set_WP();    //开启写保护
+ 124   1        
+ 125   1      }
+ 126          
+ 127          
+ 128          /*******************************************************************
+ 129          读取DS1302时钟数据
+ 130          说明：读取DS1302时钟数据，返回数据存入时钟日历暂存数组
+ 131                TimeData（数据格式BCD码）
+ 132          ***********************************************************************/
+ 133          void Read_DS1302_Time(u8 addr)
+ 134          {
+ 135   1        u8 i;
+ 136   1        DS1302_Clear_WP();      //清除写保护
+ 137   1        
+ 138   1        for(i = 0; i < 7; i++)
+ 139   1        {
+ 140   2          TimeDat[i] = DS1302_R_DAT(addr);        //先写入要读取数据的寄存器起始地址
+ 141   2          addr += 2;
+ 142   2          
+ 143   2        }
+ 144   1        DS1302_Set_WP();      //开启写保护
+ 145   1        
+ 146   1      }
+ 147          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    222    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      7    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
