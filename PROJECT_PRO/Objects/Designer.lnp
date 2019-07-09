@@ -1,0 +1,6 @@
+".\Objects\main.obj",
+".\Objects\DS1302.obj",
+".\Objects\1602.obj",
+".\Objects\key.obj" 
+TO ".\Objects\Designer" 
+PRINT(".\OUTPUT\Designer.m51") RAMSIZE(256) 

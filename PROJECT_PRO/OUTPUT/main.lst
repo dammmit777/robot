@@ -1,0 +1,328 @@
+C51 COMPILER V9.59.0.0   MAIN                                                              07/08/2019 21:43:39 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\Objects\main.obj
+COMPILER INVOKED BY: E:\MDK5\C51\BIN\C51.EXE USER\main.c OPTIMIZE(8,SPEED) BROWSE INCDIR(.\INC) DEBUG OBJECTEXTEND PRINT
+                    -(.\OUTPUT\main.lst) TABS(2) OBJECT(.\Objects\main.obj)
+
+line level    source
+
+   1          /***********************************************************************
+   2                              2019年暑期智能仪器课程设计
+   3          组别：3组
+   4          课题：基于Proteus利用中断实现时间切换的HD44780液晶显示控制设计
+   5          小组成员：宋世淼、韩忠利、樊玲、何瑞彬、房晨、孙久瑞
+   6          
+   7          工程实现：1、上电显示当前时间，矩阵键盘控制时间、日期、周数的显示及修改
+   8                    2、按下DATE键显示当前日期，按下WEEK键显示当前是周几
+   9                    3、按下STOP键停止走时，1602显示光标，此时可以设置时间；其中
+  10                       LEFT、RIGHT键控制光标的左右移动；K0~K9键实现对时间的修改
+  11                    4、按下RUN键继续走时
+  12          工程完成日期：2019年7月6日
+  13          *********************************************************************/
+  14          
+  15          #include "DS1302.h"
+  16          #include "key.h"
+  17          
+  18          
+  19          u8 Key_Flag[16] = {0};                //定义按键按下标志，按下为1；未按下为0
+  20          u8 DATE_Flag = 9;                     //定义更改日期时光标的位置
+  21          u8 TIME_Flag = 8;                     //定义更改时间时光标的位置
+  22          u8 KEY_NUM;                           //定义K0~K9的按下标志
+  23          u8 var;                               //定义中间变量，用作BCD码转换
+  24          
+  25          void SET_DATE_GE(u8 addr, u8 x);
+  26          void SET_DATE_SHI(u8 addr, u8 x);     //设置时间
+  27          
+  28          //主函数
+  29          void main()       
+  30          {
+  31   1        u8 i;
+  32   1        Inter_Init();                       //中断初始化
+  33   1        LCD_Init();                         //1602初始化
+  34   1        Set_DS1302_Time(DS1302_W_ADDR);     //先写入时钟日历寄存器起始地址再设置
+  35   1                                            //时钟日历初值
+  36   1        
+  37   1        Key_Scan();                         //矩阵键盘扫描
+  38   1        
+  39   1        while(1)
+  40   1        {
+  41   2          Read_DS1302_Time(DS1302_R_ADDR);                //先写入时钟日历寄存器起始地址再
+  42   2                                                          //读出时钟日历写入到TimeData数组中
+  43   2          LCD_Display_Time();                             //1602显示时间
+  44   2          Delay_Ms(1000);
+  45   2          
+  46   2          
+  47   2          //DATE键被按下时执行此部分
+  48   2          while(Key_Flag[14] == 1)                      
+  49   2          {
+  50   3            LCD1602_Write_CMD(0x01);                    //清屏      
+  51   3            LCD_Display_Date();                           //1602显示日期
+  52   3            Delay_Ms(2000);                             //延时
+  53   3            LCD1602_Write_CMD(0x01);                    //清屏
+  54   3            Key_Flag[14] = 0;                           //标志位清零  
+C51 COMPILER V9.59.0.0   MAIN                                                              07/08/2019 21:43:39 PAGE 2   
+
+  55   3            
+  56   3          }
+  57   2          
+  58   2          
+  59   2          //WEEK键被按下时执行此部分
+  60   2          while(Key_Flag[15] == 1)
+  61   2          {
+  62   3            LCD1602_Write_CMD(0x01);                    //清屏
+  63   3            LCD_Display_Week();                         //显示周
+  64   3            Delay_Ms(2000);                             //延时
+  65   3            LCD1602_Write_CMD(0x01);                    //清屏
+  66   3            Key_Flag[15] = 0;                           //标志位清零
+  67   3            
+  68   3          }
+  69   2        
+  70   2          
+  71   2          /******************************************/    
+  72   2          //STOP键被按下时执行此部分,此部分为设置时间
+  73   2          /******************************************/
+  74   2          while(Key_Flag[12] == 1)                      //STOP键被按下
+  75   2          {
+  76   3      
+  77   3            DS1302_Clear_WP();                          //清除写保护
+  78   3            DS1302_W_DAT(0x80, 0x80 | TimeDat[0]);      //停止走时
+  79   3            DS1302_Set_WP();                            //开启写保护
+  80   3            LCD_Display_Time();                         //显示时间
+  81   3            LCD1602_Write_CMD(0x0f);                    //显示光标
+  82   3            
+  83   3            if(Key_Flag[14] == 0 && Key_Flag[15] == 0)  //若DATE和WEEK都未被按下
+  84   3            {
+  85   4              LCD_Set_Display(TIME_Flag, 0);
+  86   4              Delay_Ms(1000);
+  87   4            }
+  88   3            
+  89   3            switch(TIME_Flag)
+  90   3            {
+  91   4              case 1:SET_DATE_SHI(0x84, 2);break;           //光标在时的十位上
+  92   4              case 2:SET_DATE_GE(0x84, 2);break;            //光标在时的个位上
+  93   4              case 4:SET_DATE_SHI(0x82, 1);break;           //光标在分的十位上
+  94   4              case 5:SET_DATE_GE(0x82, 1);break;            //光标在分的个位上
+  95   4              case 7:SET_DATE_SHI(0x80, 0);break;           //光标在秒的十位上
+  96   4              case 8:SET_DATE_GE(0x80, 0);break;            //光标在秒的个位上
+  97   4              default:break;
+  98   4            }
+  99   3                    
+ 100   3            if(Key_Flag[10] == 1)                       //LEFT键被按下
+ 101   3            {
+ 102   4              TIME_Flag--;
+ 103   4              if(TIME_Flag == 0)
+ 104   4                TIME_Flag = 8;
+ 105   4              Key_Flag[10] = 0;
+ 106   4            }
+ 107   3            
+ 108   3            if(Key_Flag[11] == 1)                       //RIGHT键被按下
+ 109   3            {
+ 110   4              TIME_Flag++;
+ 111   4              if(TIME_Flag == 9)
+ 112   4                TIME_Flag = 1;
+ 113   4              Key_Flag[11] = 0;
+ 114   4            }
+ 115   3            
+ 116   3            /***********************/
+C51 COMPILER V9.59.0.0   MAIN                                                              07/08/2019 21:43:39 PAGE 3   
+
+ 117   3            //DATE键被按下，更改日期
+ 118   3            /***********************/     
+ 119   3            if(Key_Flag[14] == 1)                         //DATE键被按下
+ 120   3            {
+ 121   4              Key_Flag[15] = 0;                           //WEEK键标志清零
+ 122   4              LCD1602_Write_CMD(0x01);                    //清屏
+ 123   4              LCD_Display_Date();                         //显示日期
+ 124   4              LCD_Set_Display(DATE_Flag, 1);
+ 125   4              Delay_Ms(1000);
+ 126   4              
+ 127   4              switch(DATE_Flag)
+ 128   4              {
+ 129   5                case 2:SET_DATE_SHI(0x8c, 6);break;           //光标在年的十位上          
+ 130   5                case 3:SET_DATE_GE(0x8c, 6);break;            //光标在年的个位上
+ 131   5                case 5:SET_DATE_SHI(0x88, 4);break;           //光标在月的十位上
+ 132   5                case 6:SET_DATE_GE(0x88, 4);break;            //光标在月的个位上
+ 133   5                case 8:SET_DATE_SHI(0x86, 3);break;           //光标在日的十位上
+ 134   5                case 9:SET_DATE_GE(0x86, 3);break;            //光标在日的个位上
+ 135   5                default:break;
+ 136   5              }
+ 137   4            
+ 138   4                      
+ 139   4              if(Key_Flag[10] == 1)                       //LEFT键被按下
+ 140   4              {
+ 141   5                DATE_Flag--;
+ 142   5                if(DATE_Flag == 1)
+ 143   5                  DATE_Flag = 9;
+ 144   5                Key_Flag[10] = 0;
+ 145   5              }
+ 146   4              
+ 147   4              if(Key_Flag[11] == 1)                       //RIGHT键被按下
+ 148   4              {
+ 149   5                DATE_Flag++;
+ 150   5                if(DATE_Flag == 10)
+ 151   5                  DATE_Flag = 2;
+ 152   5                Key_Flag[11] = 0;
+ 153   5              }
+ 154   4            }       
+ 155   3                
+ 156   3      
+ 157   3            /*******************/
+ 158   3            //WEEK键被按下,更改周
+ 159   3            /*******************/     
+ 160   3            if(Key_Flag[15] == 1)                         //WEEK键被按下                      
+ 161   3            {
+ 162   4              Key_Flag[14] = 0;                           //DATE键标志清零
+ 163   4              LCD1602_Write_CMD(0x01);                    //清屏
+ 164   4              LCD_Display_Week();                         //显示周  
+ 165   4              LCD_Set_Display(15, 0);
+ 166   4              Delay_Ms(1000);
+ 167   4              
+ 168   4              if(Key_Flag[KEY_NUM] == 1)
+ 169   4              {
+ 170   5                DS1302_Clear_WP();                          //清除写保护
+ 171   5                TimeDat[5] = KEY_NUM ;
+ 172   5                DS1302_W_DAT(0x8a, TimeDat[5]);             //周数写为周KEY_NUM
+ 173   5                DS1302_Set_WP();                            //开启写保护
+ 174   5                Key_Flag[KEY_NUM] = 0;                      //标志位清零
+ 175   5              }
+ 176   4            } 
+ 177   3      
+ 178   3            
+C51 COMPILER V9.59.0.0   MAIN                                                              07/08/2019 21:43:39 PAGE 4   
+
+ 179   3            /************/
+ 180   3            //RUN键被按下
+ 181   3            /************/
+ 182   3            if(Key_Flag[13] == 1)                         //RUN键被按下                         
+ 183   3            {
+ 184   4              LCD1602_Write_CMD(0x01);                    //清屏
+ 185   4              DS1302_Clear_WP();                          //清除写保护
+ 186   4              DS1302_W_DAT(0x80, 0x7f & TimeDat[0]);      //开始走时
+ 187   4              DS1302_Set_WP();                            //开启写保护
+ 188   4              LCD1602_Write_CMD(0x0c);                    //不显示光标
+ 189   4              
+ 190   4              for(i = 0; i < 16; i++)                     //所有标志位清零
+ 191   4              {
+ 192   5                Key_Flag[i] = 0;
+ 193   5              }
+ 194   4            }
+ 195   3      /**************************STOP_OVER******************************************************/
+ 196   3          } 
+ 197   2        }
+ 198   1      
+ 199   1      }
+ 200          
+ 201          
+ 202          //EX0外部中断函数
+ 203          void Display_Control()    interrupt 0
+ 204          {
+ 205   1        switch(Key_Scan())
+ 206   1        {
+ 207   2          //K0被按下
+ 208   2          case 0xee:KEY_NUM = 0;Key_Flag[0] = 1;break;
+ 209   2          
+ 210   2          //K1被按下
+ 211   2          case 0xde:KEY_NUM = 1;Key_Flag[1] = 1;break;
+ 212   2          
+ 213   2          //K2被按下
+ 214   2          case 0xbe:KEY_NUM = 2;Key_Flag[2] = 1;break;
+ 215   2          
+ 216   2          //K3被按下
+ 217   2          case 0x7e:KEY_NUM = 3;Key_Flag[3] = 1;break;
+ 218   2          
+ 219   2          //K4被按下  
+ 220   2          case 0xed:KEY_NUM = 4;Key_Flag[4] = 1;break;
+ 221   2          
+ 222   2          //K5被按下
+ 223   2          case 0xdd:KEY_NUM = 5;Key_Flag[5] = 1;break;
+ 224   2          
+ 225   2          //K6被按下
+ 226   2          case 0xbd:KEY_NUM = 6;Key_Flag[6] = 1;break;
+ 227   2          
+ 228   2          //K7被按下
+ 229   2          case 0x7d:KEY_NUM = 7;Key_Flag[7] = 1;break;
+ 230   2            
+ 231   2          //K8被按下
+ 232   2          case 0xeb:KEY_NUM = 8;Key_Flag[8] = 1;break;
+ 233   2          
+ 234   2          //K9被按下
+ 235   2          case 0xdb:KEY_NUM = 9;Key_Flag[9] = 1;break;
+ 236   2          
+ 237   2          //LEFT被按下
+ 238   2          case 0xbb:Key_Flag[10] = 1;break;
+ 239   2          
+ 240   2          //RIGNT被按下
+C51 COMPILER V9.59.0.0   MAIN                                                              07/08/2019 21:43:39 PAGE 5   
+
+ 241   2          case 0x7b:Key_Flag[11] = 1;break;
+ 242   2            
+ 243   2          //STOP被按下
+ 244   2          case 0xe7:Key_Flag[12] = 1;break;
+ 245   2          
+ 246   2          //RUN被按下
+ 247   2          case 0xd7:Key_Flag[13] = 1;break;
+ 248   2          
+ 249   2          //DATE被按下
+ 250   2          case 0xb7:Key_Flag[14] = 1;break;
+ 251   2          
+ 252   2          //WEEK被按下
+ 253   2          case 0x77:Key_Flag[15] = 1;break;
+ 254   2          default:  break;
+ 255   2          
+ 256   2        }
+ 257   1        
+ 258   1      }
+ 259          
+ 260          
+ 261          //设置时间
+ 262          void SET_DATE_SHI(u8 addr, u8 x)                
+ 263          {
+ 264   1        if(Key_Flag[KEY_NUM] == 1)
+ 265   1        {           
+ 266   2          TimeDat[x] =KEY_NUM*10 + TimeDat[x]%10;
+ 267   2          var = TimeDat[x]/10;
+ 268   2          TimeDat[x] %= 10;
+ 269   2          TimeDat[x] += var*16;                         //BCD码转换
+ 270   2          DS1302_Clear_WP();                          //清除写保护
+ 271   2          DS1302_W_DAT(addr, TimeDat[x]);
+ 272   2          DS1302_Set_WP();                            //开启写保护
+ 273   2          Key_Flag[KEY_NUM] = 0;
+ 274   2        }
+ 275   1        
+ 276   1      }
+ 277          
+ 278          
+ 279          void SET_DATE_GE(u8 addr, u8 x)
+ 280          {
+ 281   1        if(Key_Flag[KEY_NUM] == 1)
+ 282   1        {           
+ 283   2          TimeDat[x] =KEY_NUM + TimeDat[x]/10;
+ 284   2          var = TimeDat[x]/10;
+ 285   2          TimeDat[x] %= 10;
+ 286   2          TimeDat[x] += var*16;                         //BCD码转换
+ 287   2          DS1302_Clear_WP();                          //清除写保护
+ 288   2          DS1302_W_DAT(addr, TimeDat[x]);
+ 289   2          DS1302_Set_WP();                            //开启写保护
+ 290   2          Key_Flag[KEY_NUM] = 0;
+ 291   2          
+ 292   2        }         
+ 293   1      }
+ 294          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    911    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     20       5
+C51 COMPILER V9.59.0.0   MAIN                                                              07/08/2019 21:43:39 PAGE 6   
+
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
